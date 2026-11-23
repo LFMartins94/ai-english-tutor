@@ -63,12 +63,16 @@ class CorrectorService:
         # o corrector falhou — reply do tutor já é a resposta principal
         try:
             response = self._client.chat.completions.create(
-                model=settings.LLM_MODEL,   # mesmo modelo do Tutor
+                model=settings.LLM_MODEL_CORRECTOR,  # 20B: tarefa simples, rápido e barato
                 messages=messages,           # task prompt + frase do aluno
                 temperature=0.0,             # 0 = determinístico (análise fixa)
-                # gpt-oss-120b é modelo de REASONING: gasta dezenas de tokens
-                # "pensando" antes de gerar o JSON. 500 bastavam só pro
-                # raciocínio e cortavam a resposta (finish_reason=length).
+                # gpt-oss é modelo de REASONING: "pensa" antes de gerar o JSON.
+                # reasoning_effort=low encurta essa etapa — tarefa de
+                # classificação não precisa de raciocínio profundo, e isso
+                # reduz latência e custo sem perder qualidade no JSON.
+                reasoning_effort="low",
+                # Mesmo com effort low, reasoning + JSON podem passar de 500
+                # tokens e cortar a resposta (finish_reason=length).
                 # 2048 dá folga p/ reasoning + JSON completo de correções.
                 max_tokens=2048,
             )

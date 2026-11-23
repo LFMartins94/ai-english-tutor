@@ -33,6 +33,10 @@ class Settings(BaseSettings):
     # Identificador do modelo que receberá os prompts (gpt-oss-120b na Groq)
     LLM_MODEL: str = "openai/gpt-oss-120b"
 
+    # Modelo do Corrector — tarefa curta de classificação (JSON de erros),
+    # então usamos o 20B: 2x mais rápido e metade do preço que o 120B
+    LLM_MODEL_CORRECTOR: str = "openai/gpt-oss-20b"
+
     # URL de conexão com o PostgreSQL (dialect+driver://user:senha@host:porta/db)
     # O SQLAlchemy usa esta string para criar a engine de acesso ao banco
     DATABASE_URL: str = "postgresql+psycopg://tutor:tutor123@localhost:5432/ai_english_tutor"
