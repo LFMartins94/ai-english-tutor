@@ -62,12 +62,15 @@ class TutorService:
         history: list[dict[str, str]] | None = None,  # turnos anteriores da sessão
         level: str = "beginner",               # nível ATUAL lido do banco
         lesson_focus: str | None = None,       # foco do plano (se houver)
+        memory_context: str | None = None,     # memória do perfil (se houver)
     ) -> str:
         """Constrói as mensagens, chama o modelo e devolve apenas o texto da resposta."""
 
-        # Monta o payload [system+level+focus, *history, user] — ver prompts.py
-        # O level define a proporção PT/EN; o focus orienta a aula do turno
-        messages = build_messages(user_message, history, level, lesson_focus)
+        # Monta o payload [system+..., *history, user] — ver prompts.py
+        # level = proporção PT/EN; focus = aula; memory = perfil do aluno
+        messages = build_messages(
+            user_message, history, level, lesson_focus, memory_context
+        )
 
         # Tenta falar com o LLM; qualquer falha vira TutorError com status certo
         try:

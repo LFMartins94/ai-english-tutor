@@ -37,6 +37,15 @@ class ChatRequest(BaseModel):
         description="Turnos anteriores (fallback; o banco é a fonte oficial)",
     )
 
+    # UUID do aluno (perfil de memória de longo prazo — Etapa 7)
+    # Opcional: se enviado, o turno é vinculado ao aluno e o tutor
+    # recupera nível/foco/erros recorrentes do perfil entre sessões
+    student_id: str | None = Field(
+        default=None,                 # default None = sessão anônima
+        max_length=36,                # UUID canônico tem 36 caracteres
+        description="ID do aluno (POST /students); omitir para anônimo",
+    )
+
 
 # Schema de SAÍDA — corpo devolvido pelo POST /chat
 # Garante que o cliente sempre recebe o mesmo formato, independente do LLM

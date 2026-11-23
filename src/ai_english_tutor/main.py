@@ -43,6 +43,16 @@ from ai_english_tutor.schemas.planner import (
     PlanResponse,
     TopicOut,
 )
+from ai_english_tutor.schemas.student import (
+    ContextResponse,
+    EvaluationHistoryOut,
+    MetricsResponse,
+    StudentCreate,
+    StudentResponse,
+    WordCreate,
+    WordOut,
+    WordsResponse,
+)
 
 # Serviço do tutor (integração com o LLM) + erro de domínio TutorError
 from ai_english_tutor.services.tutor import TutorError, tutor_service
@@ -55,6 +65,9 @@ from ai_english_tutor.services.evaluator import evaluator_service
 
 # Planner: monta o plano de aula (vocabulário/gramática/conversação)
 from ai_english_tutor.services.planner import planner_service
+
+# Memory: perfil persistente, palavras, métricas e contexto (Etapa 7)
+from ai_english_tutor.services.students import students_service
 
 # Funções de persistência do histórico (salvar/buscar no PostgreSQL)
 from ai_english_tutor.services.history import get_history, save_message
@@ -171,6 +184,12 @@ def chat(
     # uuid4() → ex.: "3f8a2c1e-..." (36 chars) — único globalmente
     session_id = payload.session_id or str(uuid4())
 
+    # Aluno vinculado (memória de longo prazo — opcional)
+    # Se enviado, valida o cadastro: aluno inexistente → 404 claro
+    student_id = payload.student_id
+    if student_id:
+        students_service.require(db, student_id)
+
     # Recupera do banco as mensagens anteriores desta sessão (fonte oficial)
     prior_messages = get_history(db, session_id)
 
@@ -185,16 +204,28 @@ def chat(
     # (mantém compatibilidade com clientes que mandam o contexto antigo)
     history_for_llm = db_history if db_history else (payload.history or [])
 
-    # Nível ATUAL da sessão: última avaliação do Evaluator, ou o default.
-    # O chat apenas LÊ o nível — alterá-lo exige POST /evaluate (regra do
-    # roadmap: mudança de proporção PT/EN só via avaliação, nunca por tempo)
-    latest_evaluation = evaluator_service.get_latest(db, session_id)
+    # Nível ATUAL: com aluno, vale o mais recente entre o perfil (qualquer
+    # sessão) e a sessão atual — nível sobrevive a conversas novas.
+    # O chat apenas LÊ — alterar exige POST /evaluate (regra do roadmap)
+    latest_evaluation = evaluator_service.get_latest(
+        db, session_id=session_id, student_id=student_id
+    )
     current_level = latest_evaluation.level if latest_evaluation else DEFAULT_LEVEL
 
-    # Foco da aula: plano VIGENTE da sessão, se existir (gerado pelo
-    # Planner via POST /plan). O chat apenas LÊ — gerar plano é o Planner
-    current_plan = planner_service.get_latest(db, session_id)
+    # Foco da aula: plano VIGENTE (do aluno ou da sessão), se existir.
+    # O chat apenas LÊ — gerar plano é o trabalho do Planner (POST /plan)
+    current_plan = planner_service.get_latest(
+        db, session_id=session_id, student_id=student_id
+    )
     lesson_focus = current_plan.focus if current_plan else None
+
+    # Memória do perfil em texto (objetivos + erros recorrentes):
+    # injetada no system prompt p/ o tutor reforçar pontos fracos
+    memory_context = (
+        students_service.build_memory_context(db, student_id)
+        if student_id
+        else None
+    )
 
     # Delega a geração da resposta ao serviço (integração com o LLM)
     # Falhas do LLM levantam TutorError — capturada pelo handler global
@@ -203,12 +234,14 @@ def chat(
         history=history_for_llm,            # contexto: banco (ou fallback)
         level=current_level,                # proporção PT/EN da sessão
         lesson_focus=lesson_focus,          # foco do plano (se houver)
+        memory_context=memory_context,      # memória do perfil (se houver)
     )
 
     # Persiste o turno completo: mensagem do aluno E resposta do tutor
     # Na ordem cronológica — o GET /history devolve como foi gravado
-    save_message(db, session_id, "user", payload.message)        # fala do aluno
-    save_message(db, session_id, "assistant", reply_text)        # fala do tutor
+    # student_id vincula o turno ao perfil quando o aluno está logado
+    save_message(db, session_id, "user", payload.message, student_id)     # aluno
+    save_message(db, session_id, "assistant", reply_text, student_id)     # tutor
 
     # Corrector: audita a frase do aluno (2ª chamada LLM, barata e curta)
     # Devolve [] se falhar — degradação graceful, o chat não quebra
@@ -219,11 +252,22 @@ def chat(
         db.add(
             Correction(                 # linha nova na tabela corrections
                 session_id=session_id,  # mesma sessão da conversa
+                student_id=student_id,  # perfil do aluno (None = anônimo)
                 wrong=item.wrong,       # frase errada do aluno
                 correct=item.correct,   # versão corrigida
                 explanation=item.explanation,  # explicação em PT
             )
         )
+
+    # Memória: grava os erros do turno no PERFIL do aluno (Etapa 7)
+    # add_word deduplica — repetir o mesmo erro não cria linha nova
+    if student_id and correction_items:
+        students_service.record_mistakes(
+            db,
+            student_id,
+            [(i.wrong, i.correct, i.explanation) for i in correction_items],
+        )
+
     # COMMIT ÚNICO para todas as correções do turno (mais eficiente que
     # um commit por item — uma transação atômica para o lote inteiro)
     db.commit()
@@ -316,6 +360,11 @@ def evaluate(
 ) -> EvaluateResponse:
     """Avalia o nível do aluno pelo histórico e grava a decisão."""
 
+    # Aluno vinculado (opcional): valida o cadastro antes de avaliar
+    student_id = payload.student_id
+    if student_id:
+        students_service.require(db, student_id)
+
     # Busca o histórico da sessão (fonte oficial de evidências)
     rows = get_history(db, payload.session_id)
 
@@ -331,7 +380,7 @@ def evaluate(
 
     # Persiste a nova avaliação — passa a ser a ATUAL da sessão
     # (o histórico de linhas alimenta métricas da Etapa 7)
-    evaluator_service.save(db, payload.session_id, result)
+    evaluator_service.save(db, payload.session_id, result, student_id)
 
     # COMMIT ÚNICO da transação (mesmo padrão do /chat)
     db.commit()
@@ -380,13 +429,23 @@ def plan(
 ) -> PlanResponse:
     """Gera plano progressivo (vocab/gramática/conversa) para a sessão."""
 
-    # Nível ATUAL: lido do Evaluator (integração plano ↔ nível do roadmap)
-    latest_evaluation = evaluator_service.get_latest(db, payload.session_id)
+    # Aluno vinculado (opcional): valida o cadastro antes de planejar
+    student_id = payload.student_id
+    if student_id:
+        students_service.require(db, student_id)
+
+    # Nível ATUAL: com aluno, vale o mais recente entre o perfil e a
+    # sessão atual (integração plano ↔ nível do roadmap — Etapa 6/7)
+    latest_evaluation = evaluator_service.get_latest(
+        db, session_id=payload.session_id, student_id=student_id
+    )
     current_level = latest_evaluation.level if latest_evaluation else DEFAULT_LEVEL
 
     # Tópicos já planejados antes — o Planner NÃO pode repetir nenhum
-    # (é isso que garante a progressão entre planos da mesma sessão)
-    covered_topics = planner_service.get_covered_topics(db, payload.session_id)
+    # Com aluno, inclui planos de sessões anteriores (progressão real)
+    covered_topics = planner_service.get_covered_topics(
+        db, session_id=payload.session_id, student_id=student_id
+    )
 
     # Histórico da sessão — dá contexto sobre o que o aluno já pratica
     rows = get_history(db, payload.session_id)
@@ -399,8 +458,8 @@ def plan(
     # Falhas do LLM/JSON levantam TutorError → handler global converte
     result = planner_service.generate(current_level, history_dicts, covered_topics)
 
-    # Persiste o novo plano — passa a ser o VIGENTE da sessão
-    planner_service.save(db, payload.session_id, current_level, result)
+    # Persiste o novo plano — passa a ser o VIGENTE da sessão/aluno
+    planner_service.save(db, payload.session_id, current_level, result, student_id)
 
     # COMMIT ÚNICO da transação (mesmo padrão do /chat e /evaluate)
     db.commit()
@@ -459,6 +518,211 @@ def get_plan(
         focus=latest.focus,                       # objetivo da aula
         topics=topics_out,                        # 3 tópicos na ordem
         rationale=latest.rationale,               # justificativa em PT
+    )
+
+
+# ==============================================================================
+# ENDPOINTS DE MEMÓRIA (Etapa 7 — Memory de longo prazo do aluno)
+# Perfil persistente entre sessões: cadastro, vocabulário/erros,
+# métricas de evolução e recuperação de contexto para conversas novas.
+# ==============================================================================
+
+
+# Rota de cadastro — cria o perfil e devolve o student_id
+# Decorator @app.post mapeia POST /students e valida com StudentCreate
+@app.post("/students", response_model=StudentResponse)
+def create_student(
+    payload: StudentCreate,                       # corpo JSON validado
+    db: Session = Depends(get_db),                # sessão do banco
+) -> StudentResponse:
+    """Cadastra um aluno e devolve o ID que o cliente reutiliza nos turnos."""
+
+    # Monta a linha do perfil (UUID gerado no serviço)
+    student = students_service.create(db, payload)
+
+    # COMMIT ÚNICO da transação (mesmo padrão dos demais endpoints)
+    db.commit()
+
+    # Envelope: perfil completo com o id que o frontend deve guardar
+    return StudentResponse(
+        student_id=student.id,                    # UUID do aluno
+        name=student.name,                        # pode ser None
+        goals=student.goals,                      # pode ser None
+        native_language=student.native_language,  # default "pt-BR"
+    )
+
+
+# Rota do perfil — devolve o cadastro do aluno
+# Decorator @app.get mapeia GET /students/{student_id}
+@app.get("/students/{student_id}", response_model=StudentResponse)
+def get_student(
+    student_id: str,                              # id vindo da URL
+    db: Session = Depends(get_db),                # sessão do banco
+) -> StudentResponse:
+    """Recupera o perfil de um aluno (404 se não cadastrado)."""
+
+    # require() levanta TutorError(404) se o aluno não existir
+    student = students_service.require(db, student_id)
+
+    # Envelope do perfil
+    return StudentResponse(
+        student_id=student.id,
+        name=student.name,
+        goals=student.goals,
+        native_language=student.native_language,
+    )
+
+
+# Rota de registro de palavra — vocabulário ou erro no perfil
+# Decorator @app.post mapeia POST /students/{student_id}/words
+@app.post("/students/{student_id}/words", response_model=WordOut)
+def add_word(
+    student_id: str,                              # id vindo da URL
+    payload: WordCreate,                          # corpo JSON validado
+    db: Session = Depends(get_db),                # sessão do banco
+) -> WordOut:
+    """Registra vocabulário ou erro no perfil (dedupe automático)."""
+
+    # Valida o cadastro (404 se aluno não existir)
+    students_service.require(db, student_id)
+
+    # Valida o tipo: vocabulary | mistake (o pydantic já garante o padrão)
+    # Grava com dedupe — repetir a mesma palavra não cria linha nova
+    row = students_service.add_word(
+        db,
+        student_id,
+        word=payload.word,
+        kind=payload.kind,
+        detail=payload.detail,
+    )
+
+    # COMMIT ÚNICO da transação
+    db.commit()
+
+    # Envelope da palavra registrada
+    return WordOut(
+        word=row.word,
+        kind=row.kind,
+        detail=row.detail,
+        created_at=row.created_at.isoformat(),
+    )
+
+
+# Rota das palavras — vocabulário e erros do perfil
+# Decorator @app.get mapeia GET /students/{student_id}/words
+@app.get("/students/{student_id}/words", response_model=WordsResponse)
+def list_words(
+    student_id: str,                              # id vindo da URL
+    kind: str | None = None,                      # filtro opcional (query)
+    db: Session = Depends(get_db),                # sessão do banco
+) -> WordsResponse:
+    """Lista as palavras do aluno; ?kind=vocabulary ou ?kind=mistake filtra."""
+
+    # Valida o cadastro (404 se aluno não existir)
+    students_service.require(db, student_id)
+
+    # Busca as palavras (filtro de tipo aplicado no serviço)
+    rows = students_service.get_words(db, student_id, kind)
+
+    # Converte StudentWord → WordOut (serialização)
+    words_out = [
+        WordOut(
+            word=row.word,                        # palavra/frase
+            kind=row.kind,                        # vocabulary | mistake
+            detail=row.detail,                    # pode ser None
+            created_at=row.created_at.isoformat(),
+        )
+        for row in rows
+    ]
+
+    # Envelope: id do aluno + lista de palavras
+    return WordsResponse(student_id=student_id, words=words_out)
+
+
+# Rota de métricas — evolução e desempenho do aluno
+# Decorator @app.get mapeia GET /students/{student_id}/metrics
+@app.get("/students/{student_id}/metrics", response_model=MetricsResponse)
+def get_metrics(
+    student_id: str,                              # id vindo da URL
+    db: Session = Depends(get_db),                # sessão do banco
+) -> MetricsResponse:
+    """Devolve contadores e a curva de avaliações do aluno."""
+
+    # Valida o cadastro (404 se aluno não existir)
+    students_service.require(db, student_id)
+
+    # Agregações no banco: sessões, mensagens, correções, palavras, evals
+    data = students_service.get_metrics(db, student_id)
+
+    # Converte a curva de avaliações p/ o schema de saída
+    evaluations_out = [
+        EvaluationHistoryOut(
+            level=e["level"],                     # nível na época
+            score=e["score"],                     # score 0-100
+            created_at=e["created_at"],           # ISO 8601
+        )
+        for e in data["evaluations"]
+    ]
+
+    # Envelope completo das métricas
+    return MetricsResponse(
+        student_id=data["student_id"],
+        current_level=data["current_level"],
+        sessions_count=data["sessions_count"],
+        messages_count=data["messages_count"],
+        corrections_count=data["corrections_count"],
+        vocabulary_count=data["vocabulary_count"],
+        mistake_count=data["mistake_count"],
+        evaluations=evaluations_out,
+    )
+
+
+# Rota de contexto — memória pronta para conversas novas
+# Decorator @app.get mapeia GET /students/{student_id}/context
+@app.get("/students/{student_id}/context", response_model=ContextResponse)
+def get_context(
+    student_id: str,                              # id vindo da URL
+    db: Session = Depends(get_db),                # sessão do banco
+) -> ContextResponse:
+    """Recupera nível, objetivos, foco, erros e vocabulário do aluno."""
+
+    # Perfil + estado (require dentro já garante 404 p/ aluno inexistente)
+    data = students_service.get_context(db, student_id)
+
+    # Proporção PT/EN derivada do nível vigente (ex.: "70/30")
+    ratio = LEVEL_RATIOS.get(data["current_level"], LEVEL_RATIOS[DEFAULT_LEVEL])
+
+    # Converte top_mistakes/learned_words p/ WordOut
+    mistakes_out = [
+        WordOut(
+            word=m["word"],                       # frase errada recorrente
+            kind=m["kind"],                       # "mistake"
+            detail=m["detail"],                   # correção + explicação
+            created_at=m["created_at"] or "",     # pode ser "" no agregado
+        )
+        for m in data["top_mistakes"]
+    ]
+    words_out = [
+        WordOut(
+            word=w["word"],                       # palavra estudada
+            kind=w["kind"],                       # "vocabulary"
+            detail=w["detail"],                   # uso/definição em PT
+            created_at=w["created_at"],           # ISO 8601
+        )
+        for w in data["learned_words"]
+    ]
+
+    # Envelope do contexto recuperado
+    return ContextResponse(
+        student_id=data["student_id"],
+        name=data["name"],
+        goals=data["goals"],
+        native_language=data["native_language"],
+        current_level=data["current_level"],
+        pt_en_ratio=ratio,
+        lesson_focus=data["lesson_focus"],
+        top_mistakes=mistakes_out,
+        learned_words=words_out,
     )
 
 

@@ -71,12 +71,18 @@ Andamento do projeto. Marque cada etapa como ✅ quando concluída e verificada.
 
 ---
 
-## Etapa 7 — Memory (longo prazo) ⬜
+## Etapa 7 — Memory (longo prazo) ✅
 
-- [ ] Perfil do aluno (nível, objetivos, idioma nativo)
-- [ ] Vocabulário estudado / palavras erradas
-- [ ] Histórico de evolução e métricas de desempenho
-- [ ] Recuperação de contexto em novas sessões
+- [x] Perfil do aluno (`students`: id, objetivos, idioma nativo) — `POST/GET /students`
+- [x] Vocabulário estudado / palavras erradas (`student_words` + dedupe;
+      erros do Corrector entram automático no perfil com `student_id`)
+- [x] Histórico de evolução e métricas (`GET /students/{id}/metrics`:
+      sessões, mensagens, correções, curva de avaliações)
+- [x] Recuperação de contexto em novas sessões (`GET /students/{id}/context`
+      + chat com `student_id` herda nível/foco/erros entre sessões)
+- [x] `student_id` vincula messages/corrections/evaluations/plans (ALTER + índices)
+- [x] Verificação: nível avaliado na sessão A vale na B; erros capturados
+      do chat; progressão de planos entre sessões; anônimo continua ok; 13/13 testes
 
 ---
 
@@ -104,4 +110,4 @@ Andamento do projeto. Marque cada etapa como ✅ quando concluída e verificada.
 
 ---
 
-*Última atualização: Etapa 6 concluída.*
+*Última atualização: Etapa 7 concluída.*

@@ -26,6 +26,10 @@ class Correction(Base):
     # index=True → acelera o filtro do GET /errors/{session_id}
     session_id = Column(String(36), nullable=False, index=True)
 
+    # Dono da linha: UUID do aluno (NULL = sessao anonima sem perfil)
+    # index=True -> acelera buscas de memoria por aluno (Etapa 7)
+    student_id = Column(String(36), nullable=True, index=True)
+
     # Trecho incorreto escrito pelo aluno (ex.: "I am agree")
     # String(500) = suficiente para qualquer frase curta citada
     wrong = Column(String(500), nullable=False)

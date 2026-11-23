@@ -37,6 +37,10 @@ class Message(Base):
     # String(36) → espaço para UUID no formato canônico (36 caracteres)
     session_id = Column(String(36), nullable=False, index=True)
 
+    # Dono da linha: UUID do aluno (NULL = sessao anonima sem perfil)
+    # index=True -> acelera buscas de memoria por aluno (Etapa 7)
+    student_id = Column(String(36), nullable=True, index=True)
+
     # Quem falou: "user" (aluno) ou "assistant" (tutor)
     # String(20) + nullable=False → obrigatório, curto (cabe em 20 chars)
     role = Column(String(20), nullable=False)

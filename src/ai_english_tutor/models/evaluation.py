@@ -27,6 +27,10 @@ class Evaluation(Base):
     # index=True → acelera o filtro ORDER BY created_at DESC do /level
     session_id = Column(String(36), nullable=False, index=True)
 
+    # Dono da linha: UUID do aluno (NULL = sessao anonima sem perfil)
+    # index=True -> acelera buscas de memoria por aluno (Etapa 7)
+    student_id = Column(String(36), nullable=True, index=True)
+
     # Nível resultante: beginner | basic | intermediate | advanced
     # String(20) cobre o valor mais longo ("intermediate" = 12 chars)
     level = Column(String(20), nullable=False)

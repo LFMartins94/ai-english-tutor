@@ -27,6 +27,10 @@ class Plan(Base):
     # index=True → acelera o filtro ORDER BY created_at DESC do /plan
     session_id = Column(String(36), nullable=False, index=True)
 
+    # Dono da linha: UUID do aluno (NULL = sessao anonima sem perfil)
+    # index=True -> acelera buscas de memoria por aluno (Etapa 7)
+    student_id = Column(String(36), nullable=True, index=True)
+
     # Nível do aluno NO MOMENTO da geração (vem do Evaluator)
     # Guardar junto permite auditar planos por nível sem join
     level = Column(String(20), nullable=False)

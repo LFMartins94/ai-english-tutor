@@ -154,20 +154,24 @@ ai-english-tutor/
 │       │   ├── message.py       # tabela messages
 │       │   ├── correction.py    # tabela corrections
 │       │   ├── evaluation.py    # tabela evaluations
-│       │   └── plan.py          # tabela plans
+│       │   ├── plan.py          # tabela plans
+│       │   ├── student.py       # tabela students (perfil)
+│       │   └── student_word.py  # tabela student_words (vocab/erros)
 │       │
 │       ├── services/
 │       │   ├── tutor.py         # conversa com o LLM
 │       │   ├── corrector.py     # análise de erros do aluno
 │       │   ├── evaluator.py     # avaliação de nível
 │       │   ├── planner.py       # plano de aula progressivo
+│       │   ├── students.py      # memória de longo prazo do aluno
 │       │   ├── history.py       # persistência do histórico
 │       │   └── errors.py        # erros recorrentes
 │       │
 │       └── schemas/             # modelos de entrada e saída
 │           ├── chat.py
 │           ├── evaluation.py
-│           └── planner.py
+│           ├── planner.py
+│           └── student.py
 │
 ├── .env                         # segredos locais (não versionado)
 ├── .env.example                 # template das variáveis de ambiente
@@ -199,7 +203,7 @@ O andamento completo está em [`FALTANDO.md`](FALTANDO.md).
 | 4 | Corrector (correções integradas) | ✅ Concluída |
 | 5 | Evaluator (nível + proporção PT/EN adaptativa) | ✅ Concluída |
 | 6 | Planner (conteúdos e exercícios) | ✅ Concluída |
-| 7 | Memory (perfil e evolução de longo prazo) | ⬜ Pendente |
+| 7 | Memory (perfil e evolução de longo prazo) | ✅ Concluída |
 | 8 | Voz — modo convencional (STT + TTS) | ⬜ Pendente |
 | 9 | Interface web | ⬜ Pendente |
 | 10 | LangGraph + voz em tempo real (futuro) | ⬜ Pendente |
@@ -262,6 +266,16 @@ Documentação interativa gerada pelo FastAPI: [http://127.0.0.1:8000/docs](http
 | `GET` | `/level/{session_id}` | Nível atual da sessão + proporção PT/EN (leitura pura) |
 | `POST` | `/plan` | Gera o plano da aula (vocabulário, gramática, conversação) |
 | `GET` | `/plan/{session_id}` | Plano de aula vigente da sessão (404 se nunca gerado) |
+| `POST` | `/students` | Cadastra o aluno (perfil de memória de longo prazo) |
+| `GET` | `/students/{student_id}` | Perfil do aluno (404 se não cadastrado) |
+| `POST` | `/students/{student_id}/words` | Registra vocabulário ou erro (dedupe) |
+| `GET` | `/students/{student_id}/words` | Palavras do aluno (`?kind=vocabulary\|mistake`) |
+| `GET` | `/students/{student_id}/metrics` | Métricas: sessões, correções, curva de avaliações |
+| `GET` | `/students/{student_id}/context` | Memória pronta para conversas novas |
+
+Os endpoints `POST /chat`, `POST /evaluate` e `POST /plan` aceitam
+`student_id` opcional no corpo: com ele, nível, plano e erros passam a
+valer em **todas** as sessões do aluno (memória entre conversas).
 
 ### Exemplo de chamada
 

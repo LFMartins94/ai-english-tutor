@@ -22,6 +22,14 @@ class EvaluateRequest(BaseModel):
         description="ID da sessão cujo histórico será avaliado",
     )
 
+    # UUID do aluno (opcional — vincula a avaliação ao perfil)
+    # Com aluno, o nível passa a valer em TODAS as sessões dele
+    student_id: str | None = Field(
+        default=None,
+        max_length=36,
+        description="ID do aluno (POST /students); vincula a avaliação ao perfil",
+    )
+
 
 # Schema de SAÍDA — corpo devolvido pelo POST /evaluate
 class EvaluateResponse(BaseModel):

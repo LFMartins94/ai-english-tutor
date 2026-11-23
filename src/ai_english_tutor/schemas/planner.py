@@ -21,6 +21,14 @@ class PlanRequest(BaseModel):
         description="ID da sessão para a qual o plano será gerado",
     )
 
+    # UUID do aluno (opcional — vincula o plano ao perfil)
+    # Com aluno, tópicos cobertos e plano vigente valem entre sessões
+    student_id: str | None = Field(
+        default=None,
+        max_length=36,
+        description="ID do aluno (POST /students); vincula o plano ao perfil",
+    )
+
 
 # Schema de SAÍDA — um tópico do plano (vocabulário/gramática/conversação)
 class TopicOut(BaseModel):

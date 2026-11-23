@@ -17,6 +17,7 @@ def save_message(
     session_id: str,       # UUID da conversa (agrupa as mensagens)
     role: str,             # "user" ou "assistant"
     content: str,          # texto da mensagem
+    student_id: str | None = None,  # perfil do aluno (None = anônimo)
 ) -> Message:
     """Grava uma mensagem no banco e devolve a linha criada (com id)."""
 
@@ -24,6 +25,7 @@ def save_message(
     # (SQLAlchemy rastreia a instância como "pendente de insert")
     message = Message(
         session_id=session_id,   # agrupador da conversa
+        student_id=student_id,   # dono (perfil) quando vinculado
         role=role,               # quem falou
         content=content,         # o que foi dito
     )

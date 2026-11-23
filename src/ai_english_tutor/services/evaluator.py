@@ -25,6 +25,9 @@ from ai_english_tutor.core.config import settings
 # Sessão SQLAlchemy — persistência das avaliações no PostgreSQL
 from sqlalchemy.orm import Session
 
+# or_: combina filtros quando há aluno + sessão (último dos dois)
+from sqlalchemy import or_
+
 # Modelo ORM da tabela evaluations (gravação/leitura do nível)
 from ai_english_tutor.models.evaluation import Evaluation
 
@@ -167,15 +170,33 @@ class EvaluatorService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def get_latest(db: Session, session_id: str) -> Evaluation | None:
-        """Retorna a avaliação mais recente da sessão (ou None)."""
+    def get_latest(
+        db: Session,
+        session_id: str | None = None,
+        student_id: str | None = None,
+    ) -> Evaluation | None:
+        """Retorna a avaliação mais recente da sessão e/ou do aluno."""
 
-        # ORDER BY created_at DESC + LIMIT 1 = decisão "atual" da sessão
+        # Monta o filtro: com aluno, vale o MAIS RECENTE entre as
+        # avaliações do perfil (qualquer sessão) e as da sessão atual
+        # (sem isso, uma sessão nova perderia o nível já avaliado)
+        query = db.query(Evaluation)
+        if student_id and session_id:
+            query = query.filter(
+                or_(
+                    Evaluation.student_id == student_id,   # perfil do aluno
+                    Evaluation.session_id == session_id,   # sessão atual
+                )
+            )
+        elif student_id:
+            query = query.filter(Evaluation.student_id == student_id)
+        else:
+            query = query.filter(Evaluation.session_id == session_id)
+
+        # ORDER BY created_at DESC + LIMIT 1 = decisão "atual"
         # created_at é server_default=NOW(); empates raros resolvidos por id
         return (
-            db.query(Evaluation)                # SELECT * FROM evaluations
-            .filter(Evaluation.session_id == session_id)
-            .order_by(Evaluation.created_at.desc(), Evaluation.id.desc())
+            query.order_by(Evaluation.created_at.desc(), Evaluation.id.desc())
             .limit(1)                           # só a mais recente
             .first()
         )
@@ -185,13 +206,15 @@ class EvaluatorService:
         db: Session,
         session_id: str,
         result: EvaluationResult,
+        student_id: str | None = None,
     ) -> Evaluation:
-        """Grava uma nova avaliação (passa a ser a atual da sessão)."""
+        """Grava uma nova avaliação (passa a ser a atual da sessão/aluno)."""
 
         # Monta a linha ORM — o commit é responsabilidade do endpoint
         # (mesmo padrão do /chat: endpoint orquestra e commita uma vez)
         row = Evaluation(
             session_id=session_id,              # sessão avaliada
+            student_id=student_id,              # perfil (None = anônimo)
             level=result.level,                 # nível decidido
             score=result.score,                 # pontuação 0-100
             rationale=result.rationale,         # justificativa em PT

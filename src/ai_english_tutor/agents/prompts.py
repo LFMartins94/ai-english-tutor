@@ -61,8 +61,9 @@ def build_messages(
     history: list[dict[str, str]] | None = None,
     level: str = DEFAULT_LEVEL,
     lesson_focus: str | None = None,
+    memory_context: str | None = None,
 ) -> list[dict[str, str]]:
-    """Monta o payload: system (com nível e foco) + histórico + mensagem."""
+    """Monta o payload: system (nível, foco, memória) + histórico + mensagem."""
 
     # Lista final que será enviada ao modelo — começa com a persona do tutor
     messages: list[dict[str, str]] = []
@@ -79,6 +80,11 @@ def build_messages(
     # o tutor conduz a conversa na direção do tópico planejado
     if lesson_focus:
         system_prompt += f"CURRENT LESSON FOCUS: {lesson_focus}\n"
+
+    # Memória de longo prazo (Etapa 7): objetivos do aluno e erros
+    # recorrentes vindos do perfil — o tutor reforça pontos fracos
+    if memory_context:
+        system_prompt += f"STUDENT MEMORY:\n{memory_context}\n"
 
     # Adiciona a instrução de sistema (comportamento do professor + nível)
     messages.append({"role": "system", "content": system_prompt})

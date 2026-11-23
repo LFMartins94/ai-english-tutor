@@ -20,6 +20,9 @@ from ai_english_tutor.core.config import settings
 # Sessão SQLAlchemy — persistência dos planos no PostgreSQL
 from sqlalchemy.orm import Session
 
+# or_: combina filtros quando há aluno + sessão (último dos dois)
+from sqlalchemy import or_
+
 # Modelo ORM da tabela plans (gravação/leitura do plano vigente)
 from ai_english_tutor.models.plan import Plan
 
@@ -205,30 +208,58 @@ class PlannerService:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def get_latest(db: Session, session_id: str) -> Plan | None:
-        """Retorna o plano mais recente da sessão (ou None)."""
+    def get_latest(
+        db: Session,
+        session_id: str | None = None,
+        student_id: str | None = None,
+    ) -> Plan | None:
+        """Retorna o plano mais recente da sessão e/ou do aluno."""
 
-        # ORDER BY created_at DESC + LIMIT 1 = plano "vigente" da sessão
+        # Com aluno, vale o MAIS RECENTE entre os planos do perfil
+        # (qualquer sessão) e os da sessão atual — plano vigente entre
+        # conversas novas do mesmo aluno
+        query = db.query(Plan)
+        if student_id and session_id:
+            query = query.filter(
+                or_(
+                    Plan.student_id == student_id,         # perfil do aluno
+                    Plan.session_id == session_id,         # sessão atual
+                )
+            )
+        elif student_id:
+            query = query.filter(Plan.student_id == student_id)
+        else:
+            query = query.filter(Plan.session_id == session_id)
+
+        # ORDER BY created_at DESC + LIMIT 1 = plano "vigente"
         # created_at é server_default=NOW(); empates raros resolvidos por id
         return (
-            db.query(Plan)                     # SELECT * FROM plans
-            .filter(Plan.session_id == session_id)
-            .order_by(Plan.created_at.desc(), Plan.id.desc())
+            query.order_by(Plan.created_at.desc(), Plan.id.desc())
             .limit(1)                         # só o mais recente
             .first()
         )
 
     @staticmethod
-    def get_covered_topics(db: Session, session_id: str) -> list[str]:
-        """Títulos de todos os tópicos já planejados na sessão (histórico)."""
+    def get_covered_topics(
+        db: Session,
+        session_id: str | None = None,
+        student_id: str | None = None,
+    ) -> list[str]:
+        """Títulos dos tópicos já planejados na sessão/aluno (histórico)."""
 
-        # Busca todos os planos da sessão, do mais antigo ao mais recente
-        rows = (
-            db.query(Plan)
-            .filter(Plan.session_id == session_id)
-            .order_by(Plan.created_at.asc(), Plan.id.asc())
-            .all()
-        )
+        # Busca todos os planos relevantes, do mais antigo ao mais recente
+        # (com aluno, inclui planos de sessões anteriores — progressão real)
+        query = db.query(Plan)
+        if student_id and session_id:
+            query = query.filter(
+                or_(Plan.student_id == student_id, Plan.session_id == session_id)
+            )
+        elif student_id:
+            query = query.filter(Plan.student_id == student_id)
+        else:
+            query = query.filter(Plan.session_id == session_id)
+
+        rows = query.order_by(Plan.created_at.asc(), Plan.id.asc()).all()
 
         # Achata a lista JSON de cada plano em uma lista de títulos
         # (o Planner recebe isto para NÃO repetir nenhum tópico)
@@ -246,8 +277,9 @@ class PlannerService:
         session_id: str,
         level: str,
         result: PlanResult,
+        student_id: str | None = None,
     ) -> Plan:
-        """Grava um novo plano (passa a ser o vigente da sessão)."""
+        """Grava um novo plano (passa a ser o vigente da sessão/aluno)."""
 
         # Converte TopicItem[] → list[dict] para a coluna JSON do banco
         topics_payload = [
@@ -259,6 +291,7 @@ class PlannerService:
         # (mesmo padrão do /chat e /evaluate: endpoint commita uma vez)
         row = Plan(
             session_id=session_id,              # sessão do plano
+            student_id=student_id,              # perfil (None = anônimo)
             level=level,                        # nível vigente na geração
             focus=result.focus,                 # objetivo da aula
             topics=topics_payload,              # 3 tópicos em JSON
