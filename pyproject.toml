@@ -1,0 +1,49 @@
+# ==============================================================================
+# pyproject.toml — fonte única de configuração do projeto (padrão PEP 621)
+# Gerenciador de dependências: uv (substitui pip + requirements.txt)
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# [project] — metadados e dependências do pacote instalável
+# ------------------------------------------------------------------------------
+[project]
+# Nome do pacote no PyPI/uv (sem espaços, com hífens)
+name = "ai-english-tutor"
+# Versão semântica inicial — 0.x = em desenvolvimento, API pode mudar
+version = "0.1.0"
+# Descrição curta exibida em `uv pip show` e no README do pacote
+description = "AI English Tutor — professor particular de inglês com voz, texto e ensino adaptativo"
+# Arquivo lido como long description (precisa existir na raiz)
+readme = "README.md"
+# Versão mínima do Python exigida — trava o interpreter usado pelo uv
+requires-python = ">=3.14"
+
+# Dependências de runtime — instaladas por `uv sync`
+dependencies = [
+    # Framework web assíncrono que expõe os endpoints da API
+    "fastapi>=0.115.0",
+    # Servidor ASGI que roda a app FastAPI em produção/desenvolvimento
+    "uvicorn[standard]>=0.32.0",
+    # Cliente LLM compatível com a API da OpenAI — usado contra a Groq
+    # (a Groq expõe um endpoint OpenAI-compatible, então este SDK serve)
+    "openai>=1.54.0",
+    # Leitura de variáveis de ambiente tipadas a partir de .env
+    "pydantic-settings>=2.6.0",
+    "sqlalchemy>=2.0.36",
+    "psycopg[binary]>=3.2.3",
+]
+
+# ------------------------------------------------------------------------------
+# [project.scripts] — comando de linha instalado junto com o pacote
+# `uv run ai-english-tutor` chama a função main() do módulo indicado
+# ------------------------------------------------------------------------------
+[project.scripts]
+ai-english-tutor = "ai_english_tutor:main"
+
+# ------------------------------------------------------------------------------
+# [build-system] — como o uv constrói/instala o próprio pacote
+# uv_build é o backend oficial e leve do ecossistema uv
+# ------------------------------------------------------------------------------
+[build-system]
+requires = ["uv_build>=0.12.1,<0.13.0"]
+build-backend = "uv_build"

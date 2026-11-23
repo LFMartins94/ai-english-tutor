@@ -1,0 +1,28 @@
+# ==============================================================================
+# .gitignore — lista de arquivos/pastas que o Git NÃO deve versionar
+# ==============================================================================
+
+# Arquivos gerados pelo Python (cache de bytecode)
+__pycache__/
+*.py[oc]
+
+# Artefatos de build de pacotes
+build/
+dist/
+wheels/
+*.egg-info
+
+# Ambiente virtual criado pelo uv
+.venv
+
+# Segredos e configuração local — copie .env.example e preencha você mesmo
+.env
+
+# Arquivos de editor e sistema
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs da aplicação
+*.log
