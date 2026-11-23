@@ -9,5 +9,8 @@ from ai_english_tutor.models.message import Message
 # Reexporta Correction (erros do aluno) para import direto pelo service/endpoint
 from ai_english_tutor.models.correction import Correction
 
+# Reexporta Evaluation (avaliações de nível) para o Evaluator e endpoints
+from ai_english_tutor.models.evaluation import Evaluation
+
 # Lista pública do módulo — define o que `from ... import *` expõe
-__all__ = ["Message", "Correction"]
+__all__ = ["Message", "Correction", "Evaluation"]

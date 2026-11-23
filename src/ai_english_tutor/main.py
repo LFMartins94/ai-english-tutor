@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-# Schemas de entrada/saída: chat, histórico, mensagens e erros
+# Schemas de entrada/saída: chat, histórico, mensagens, erros e avaliação
 from ai_english_tutor.schemas.chat import (
     ChatRequest,
     ChatResponse,
@@ -32,12 +32,20 @@ from ai_english_tutor.schemas.chat import (
     HistoryResponse,
     MessageOut,
 )
+from ai_english_tutor.schemas.evaluation import (
+    EvaluateRequest,
+    EvaluateResponse,
+    LevelResponse,
+)
 
 # Serviço do tutor (integração com o LLM) + erro de domínio TutorError
 from ai_english_tutor.services.tutor import TutorError, tutor_service
 
 # Corrector: analisa a frase do aluno e devolve erros estruturados
 from ai_english_tutor.services.corrector import corrector_service
+
+# Evaluator: julga o nível do aluno e persiste a decisão no banco
+from ai_english_tutor.services.evaluator import evaluator_service
 
 # Funções de persistência do histórico (salvar/buscar no PostgreSQL)
 from ai_english_tutor.services.history import get_history, save_message
@@ -47,6 +55,12 @@ from ai_english_tutor.services.errors import get_errors_summary
 
 # Modelo ORM das correções — import registra a tabela no metadata
 from ai_english_tutor.models.correction import Correction
+
+# Modelo ORM das avaliações — import registra a tabela evaluations
+from ai_english_tutor.models.evaluation import Evaluation
+
+# Níveis do ensino adaptativo: proporções PT/EN e default de sessão nova
+from ai_english_tutor.agents.prompts import DEFAULT_LEVEL, LEVEL_RATIOS
 
 # Configurações carregadas do .env — usadas para expor o modelo no /health
 from ai_english_tutor.core.config import settings
@@ -159,11 +173,18 @@ def chat(
     # (mantém compatibilidade com clientes que mandam o contexto antigo)
     history_for_llm = db_history if db_history else (payload.history or [])
 
+    # Nível ATUAL da sessão: última avaliação do Evaluator, ou o default.
+    # O chat apenas LÊ o nível — alterá-lo exige POST /evaluate (regra do
+    # roadmap: mudança de proporção PT/EN só via avaliação, nunca por tempo)
+    latest_evaluation = evaluator_service.get_latest(db, session_id)
+    current_level = latest_evaluation.level if latest_evaluation else DEFAULT_LEVEL
+
     # Delega a geração da resposta ao serviço (integração com o LLM)
     # Falhas do LLM levantam TutorError — capturada pelo handler global
     reply_text = tutor_service.reply(
         user_message=payload.message,       # texto novo do aluno
         history=history_for_llm,            # contexto: banco (ou fallback)
+        level=current_level,                # proporção PT/EN da sessão
     )
 
     # Persiste o turno completo: mensagem do aluno E resposta do tutor
@@ -265,6 +286,70 @@ def errors(
     return ErrorsResponse(
         session_id=session_id,             # ecoa o id consultado
         errors=errors_out,                 # recorrentes primeiro
+    )
+
+
+# Rota de avaliação — ÚNICO caminho que altera o nível da sessão
+# Decorator @app.post mapeia POST /evaluate e valida com EvaluateRequest
+@app.post("/evaluate", response_model=EvaluateResponse)
+def evaluate(
+    payload: EvaluateRequest,                        # corpo JSON validado
+    db: Session = Depends(get_db),                   # sessão do banco
+) -> EvaluateResponse:
+    """Avalia o nível do aluno pelo histórico e grava a decisão."""
+
+    # Busca o histórico da sessão (fonte oficial de evidências)
+    rows = get_history(db, payload.session_id)
+
+    # Converte linhas ORM → [{"role","content"}, ...] p/ o Evaluator
+    history_dicts = [
+        {"role": row.role, "content": row.content}   # mapeia colunas → dicts
+        for row in rows                              # para cada mensagem
+    ]
+
+    # Delega o julgamento ao serviço (2ª chamada LLM, só na avaliação)
+    # Falhas do LLM/JSON levantam TutorError → handler global converte
+    result = evaluator_service.evaluate(history_dicts)
+
+    # Persiste a nova avaliação — passa a ser a ATUAL da sessão
+    # (o histórico de linhas alimenta métricas da Etapa 7)
+    evaluator_service.save(db, payload.session_id, result)
+
+    # COMMIT ÚNICO da transação (mesmo padrão do /chat)
+    db.commit()
+
+    # Envelope: decisão + proporção PT/EN que passa a valer no chat
+    return EvaluateResponse(
+        session_id=payload.session_id,         # ecoa a sessão avaliada
+        level=result.level,                    # nível decidido
+        score=result.score,                    # pontuação 0-100
+        rationale=result.rationale,            # justificativa em PT
+        pt_en_ratio=LEVEL_RATIOS[result.level],  # ex.: "70/30"
+    )
+
+
+# Rota do nível atual — apenas LEITURA, nunca altera nada
+# Decorator @app.get mapeia GET /level/{session_id} com parâmetro de caminho
+@app.get("/level/{session_id}", response_model=LevelResponse)
+def level(
+    session_id: str,                               # id vindo da URL
+    db: Session = Depends(get_db),                 # sessão do banco injetada
+) -> LevelResponse:
+    """Devolve o nível vigente da sessão (default beginner se nunca avaliada)."""
+
+    # Última avaliação gravada (None = sessão nunca avaliada)
+    latest = evaluator_service.get_latest(db, session_id)
+
+    # Sem avaliação → default do sistema (beginner, 70/30)
+    # Com avaliação → linha mais recente determina o nível atual
+    current_level = latest.level if latest else DEFAULT_LEVEL
+
+    # Envelope com o nível, a proporção e se já houve avaliação formal
+    return LevelResponse(
+        session_id=session_id,                     # ecoa o id consultado
+        level=current_level,                       # nível vigente
+        pt_en_ratio=LEVEL_RATIOS[current_level],   # ex.: "70/30"
+        evaluated=latest is not None,              # true = já foi avaliada
     )
 
 

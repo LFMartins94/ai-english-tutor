@@ -143,19 +143,28 @@ ai-english-tutor/
 │       │
 │       ├── core/
 │       │   ├── __init__.py
-│       │   └── config.py        # configurações e variáveis de ambiente
+│       │   ├── config.py        # configurações e variáveis de ambiente
+│       │   └── database.py      # engine + sessão do PostgreSQL
 │       │
 │       ├── agents/
 │       │   ├── __init__.py
-│       │   └── prompts.py       # instruções e comportamento dos agentes
+│       │   └── prompts.py       # instruções e comportamento dos módulos
+│       │
+│       ├── models/              # mapeamento tabela ↔ classe (ORM)
+│       │   ├── message.py       # tabela messages
+│       │   ├── correction.py    # tabela corrections
+│       │   └── evaluation.py    # tabela evaluations
 │       │
 │       ├── services/
-│       │   ├── __init__.py
-│       │   └── tutor.py         # lógica de negócio e integração com LLM
+│       │   ├── tutor.py         # conversa com o LLM
+│       │   ├── corrector.py     # análise de erros do aluno
+│       │   ├── evaluator.py     # avaliação de nível
+│       │   ├── history.py       # persistência do histórico
+│       │   └── errors.py        # erros recorrentes
 │       │
-│       └── schemas/
-│           ├── __init__.py
-│           └── chat.py          # modelos de entrada e saída
+│       └── schemas/             # modelos de entrada e saída
+│           ├── chat.py
+│           └── evaluation.py
 │
 ├── .env                         # segredos locais (não versionado)
 ├── .env.example                 # template das variáveis de ambiente
@@ -185,7 +194,7 @@ O andamento completo está em [`FALTANDO.md`](FALTANDO.md).
 | 2 | Chat de texto ponta-a-ponta com LLM | ✅ Concluída |
 | 3 | Persistência no PostgreSQL (histórico) | ✅ Concluída |
 | 4 | Corrector (correções integradas) | ✅ Concluída |
-| 5 | Evaluator (nível + proporção PT/EN adaptativa) | ⬜ Pendente |
+| 5 | Evaluator (nível + proporção PT/EN adaptativa) | ✅ Concluída |
 | 6 | Planner (conteúdos e exercícios) | ⬜ Pendente |
 | 7 | Memory (perfil e evolução de longo prazo) | ⬜ Pendente |
 | 8 | Voz — modo convencional (STT + TTS) | ⬜ Pendente |
@@ -246,6 +255,8 @@ Documentação interativa gerada pelo FastAPI: [http://127.0.0.1:8000/docs](http
 | `POST` | `/chat` | Recebe `{message, session_id?}` e devolve `{reply, model, session_id, corrections}` |
 | `GET` | `/history/{session_id}` | Histórico completo da sessão (mensagens em ordem cronológica) |
 | `GET` | `/errors/{session_id}` | Erros recorrentes do aluno, ordenados por frequência |
+| `POST` | `/evaluate` | Avalia o nível da sessão (único caminho que altera o nível) |
+| `GET` | `/level/{session_id}` | Nível atual da sessão + proporção PT/EN (leitura pura) |
 
 ### Exemplo de chamada
 

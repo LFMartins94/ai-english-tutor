@@ -48,11 +48,14 @@ Andamento do projeto. Marque cada etapa como ✅ quando concluída e verificada.
 
 ---
 
-## Etapa 5 — Evaluator ⬜
+## Etapa 5 — Evaluator ✅
 
-- [ ] Avaliação de nível (diagnóstico inicial + reavaliações)
-- [ ] Regra: mudança de proporção PT/EN só após avaliação, nunca por tempo
-- [ ] Ajuste dinâmico do system prompt conforme o nível atual
+- [x] Avaliação de nível (diagnóstico inicial + reavaliações)
+- [x] Regra: mudança de proporção PT/EN só após avaliação, nunca por tempo
+- [x] Ajuste dinâmico do system prompt conforme o nível atual
+- [x] Tabela `evaluations` (log de decisões — base das métricas da Etapa 7)
+- [x] Verificação: sessão nova → beginner 70/30; conversa avançada → advanced (85);
+  só PT → beginner (5); última avaliação prevalece; chat não altera nível; 9/9 testes
 
 ---
 
@@ -97,4 +100,4 @@ Andamento do projeto. Marque cada etapa como ✅ quando concluída e verificada.
 
 ---
 
-*Última atualização: Etapa 4 concluída.*
+*Última atualização: Etapa 5 concluída.*
