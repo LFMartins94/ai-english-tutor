@@ -60,8 +60,9 @@ def build_messages(
     user_message: str,
     history: list[dict[str, str]] | None = None,
     level: str = DEFAULT_LEVEL,
+    lesson_focus: str | None = None,
 ) -> list[dict[str, str]]:
-    """Monta o payload: system (com nível atual) + histórico + mensagem do aluno."""
+    """Monta o payload: system (com nível e foco) + histórico + mensagem."""
 
     # Lista final que será enviada ao modelo — começa com a persona do tutor
     messages: list[dict[str, str]] = []
@@ -73,6 +74,11 @@ def build_messages(
         TUTOR_SYSTEM_PROMPT
         + f"\nCURRENT LEVEL: {level} — apply its PT/EN ratio strictly.\n"
     )
+
+    # Foco da aula (gerado pelo Planner, se houver plano para a sessão):
+    # o tutor conduz a conversa na direção do tópico planejado
+    if lesson_focus:
+        system_prompt += f"CURRENT LESSON FOCUS: {lesson_focus}\n"
 
     # Adiciona a instrução de sistema (comportamento do professor + nível)
     messages.append({"role": "system", "content": system_prompt})
@@ -191,6 +197,83 @@ def build_evaluator_messages(history: list[dict[str, str]]) -> list[dict[str, st
     transcript = "\n".join(transcript_lines)       # une em bloco multilinha
 
     messages.append({"role": "user", "content": transcript})
+
+    # Lista pronta para a API do LLM
+    return messages
+
+
+# ==============================================================================
+# PLANNER — planejador de aulas (módulo lógico separado do Tutor)
+# Chamada SEPARADA com nível + histórico + tópicos já cobertos:
+# monta o próximo plano de aula (vocabulário, gramática, conversação)
+# respeitando o nível vindo do Evaluator e evitando repetição.
+# ==============================================================================
+
+# Prompt do Planner — pede SAÍDA JSON estruturada para parse confiável.
+# Regras centrais: 1 vocabulário + 1 gramática + 1 conversa, na ordem
+# didática, no nível correto e SEM repetir o que já foi coberto.
+PLANNER_SYSTEM_PROMPT = """\
+You are a lesson planner for a Brazilian student learning English.
+
+INPUT: current level, recent conversation transcript, and titles of
+topics already covered in previous plans.
+TASK: design the NEXT lesson plan (one short tutoring session).
+
+Levels and what fits each band:
+- beginner:     greetings, self-introduction, numbers, colors, family,
+                "to be" in present simple; very basic vocabulary
+- basic:        daily routine, simple past, food/places vocabulary,
+                short practical dialogues
+- intermediate: opinions/feelings, present perfect, idioms/phrasal
+                verbs, longer discussions about experiences
+- advanced:     formal vs informal register, nuanced vocabulary,
+                abstract topics, debates and professional situations
+
+Rules:
+- Return EXACTLY 3 topics in teaching order:
+  1) vocabulary, 2) grammar, 3) conversation (one of each kind)
+- NEVER repeat a topic already covered (list provided) — progress
+  on what came before instead of restarting
+- Match the level strictly: no advanced grammar for a beginner
+- Each topic must fit a short chat-based tutoring session
+
+OUTPUT: strict JSON only, no markdown, no commentary:
+{"topics":[{"kind":"vocabulary","title":"<short name>","detail":"<what to teach, PT, max 20 words>"},{"kind":"grammar","title":"<short name>","detail":"<what to teach, PT, max 20 words>"},{"kind":"conversation","title":"<short name>","detail":"<what to practice, PT, max 20 words>"}],"focus":"<one sentence describing the lesson goal>","rationale":"<why this plan fits, PT, max 30 words>"}
+"""
+
+
+# Monta as mensagens da chamada do Planner (system + dados da sessão)
+# Entra: nível atual (do Evaluator), histórico recente e tópicos cobertos
+def build_planner_messages(
+    level: str,
+    history: list[dict[str, str]],
+    covered_topics: list[str],
+) -> list[dict[str, str]]:
+    """Payload para o LLM montar o plano: system + contexto da sessão."""
+
+    # Instrução de sistema: define níveis, regras e formato JSON de saída
+    messages: list[dict[str, str]] = [
+        {"role": "system", "content": PLANNER_SYSTEM_PROMPT},
+    ]
+
+    # Contexto da sessão num único turno user (transcript + cobertos)
+    # Formato key: value torna o payload fácil de ler para o modelo
+    transcript_lines = [
+        f"{turn['role']}: {turn['content']}"     # ex.: "user: I went to school"
+        for turn in history                        # para cada turno da sessão
+    ]
+    transcript = "\n".join(transcript_lines) or "(no conversation yet)"
+
+    # Tópicos já planejados antes — o Planner não pode repetir nenhum
+    covered = ", ".join(covered_topics) if covered_topics else "(none yet)"
+
+    user_payload = (
+        f"CURRENT LEVEL: {level}\n"
+        f"TOPICS ALREADY COVERED: {covered}\n"
+        f"RECENT CONVERSATION:\n{transcript}"
+    )
+
+    messages.append({"role": "user", "content": user_payload})
 
     # Lista pronta para a API do LLM
     return messages

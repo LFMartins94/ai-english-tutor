@@ -153,18 +153,21 @@ ai-english-tutor/
 │       ├── models/              # mapeamento tabela ↔ classe (ORM)
 │       │   ├── message.py       # tabela messages
 │       │   ├── correction.py    # tabela corrections
-│       │   └── evaluation.py    # tabela evaluations
+│       │   ├── evaluation.py    # tabela evaluations
+│       │   └── plan.py          # tabela plans
 │       │
 │       ├── services/
 │       │   ├── tutor.py         # conversa com o LLM
 │       │   ├── corrector.py     # análise de erros do aluno
 │       │   ├── evaluator.py     # avaliação de nível
+│       │   ├── planner.py       # plano de aula progressivo
 │       │   ├── history.py       # persistência do histórico
 │       │   └── errors.py        # erros recorrentes
 │       │
 │       └── schemas/             # modelos de entrada e saída
 │           ├── chat.py
-│           └── evaluation.py
+│           ├── evaluation.py
+│           └── planner.py
 │
 ├── .env                         # segredos locais (não versionado)
 ├── .env.example                 # template das variáveis de ambiente
@@ -195,7 +198,7 @@ O andamento completo está em [`FALTANDO.md`](FALTANDO.md).
 | 3 | Persistência no PostgreSQL (histórico) | ✅ Concluída |
 | 4 | Corrector (correções integradas) | ✅ Concluída |
 | 5 | Evaluator (nível + proporção PT/EN adaptativa) | ✅ Concluída |
-| 6 | Planner (conteúdos e exercícios) | ⬜ Pendente |
+| 6 | Planner (conteúdos e exercícios) | ✅ Concluída |
 | 7 | Memory (perfil e evolução de longo prazo) | ⬜ Pendente |
 | 8 | Voz — modo convencional (STT + TTS) | ⬜ Pendente |
 | 9 | Interface web | ⬜ Pendente |
@@ -257,6 +260,8 @@ Documentação interativa gerada pelo FastAPI: [http://127.0.0.1:8000/docs](http
 | `GET` | `/errors/{session_id}` | Erros recorrentes do aluno, ordenados por frequência |
 | `POST` | `/evaluate` | Avalia o nível da sessão (único caminho que altera o nível) |
 | `GET` | `/level/{session_id}` | Nível atual da sessão + proporção PT/EN (leitura pura) |
+| `POST` | `/plan` | Gera o plano da aula (vocabulário, gramática, conversação) |
+| `GET` | `/plan/{session_id}` | Plano de aula vigente da sessão (404 se nunca gerado) |
 
 ### Exemplo de chamada
 

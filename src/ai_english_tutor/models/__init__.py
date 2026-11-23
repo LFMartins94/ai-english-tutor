@@ -12,5 +12,8 @@ from ai_english_tutor.models.correction import Correction
 # Reexporta Evaluation (avaliações de nível) para o Evaluator e endpoints
 from ai_english_tutor.models.evaluation import Evaluation
 
+# Reexporta Plan (planos de aula) para o Planner e endpoints
+from ai_english_tutor.models.plan import Plan
+
 # Lista pública do módulo — define o que `from ... import *` expõe
-__all__ = ["Message", "Correction", "Evaluation"]
+__all__ = ["Message", "Correction", "Evaluation", "Plan"]

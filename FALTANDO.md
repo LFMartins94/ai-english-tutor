@@ -59,11 +59,15 @@ Andamento do projeto. Marque cada etapa como ✅ quando concluída e verificada.
 
 ---
 
-## Etapa 6 — Planner ⬜
+## Etapa 6 — Planner ✅
 
-- [ ] Seleção de conteúdos e exercícios por nível
-- [ ] Plano de aula progressivo (vocabulário, gramática, conversação)
-- [ ] Integração com Evaluator para escolher o próximo tópico
+- [x] Seleção de conteúdos e exercícios por nível (vocabulary/grammar/conversation)
+- [x] Plano de aula progressivo — não repete tópicos já cobertos
+- [x] Integração com Evaluator: plano usa o nível vigente da sessão
+- [x] Tabela `plans` + `POST /plan` / `GET /plan/{session_id}`
+- [x] Chat recebe o foco do plano vigente (CURRENT LESSON FOCUS no prompt)
+- [x] Verificação: beginner → "Cores/to be/Apresentação"; advanced → "Idioms/
+  Mixed Conditionals/Debate"; 2º plano sem repetição; chat usa foco; 9/9 testes
 
 ---
 
@@ -100,4 +104,4 @@ Andamento do projeto. Marque cada etapa como ✅ quando concluída e verificada.
 
 ---
 
-*Última atualização: Etapa 5 concluída.*
+*Última atualização: Etapa 6 concluída.*

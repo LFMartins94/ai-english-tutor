@@ -10,7 +10,8 @@ from uuid import uuid4
 # FastAPI: framework que cria a app e mapeia rotas → funções Python
 # Depends: marca parâmetros de função que o FastAPI deve "injetar" (DI)
 # Request: objeto da requisição HTTP (usado nos handlers de erro)
-from fastapi import Depends, FastAPI, Request
+# HTTPException: erro de domínio com status code (ex.: 404 sem plano)
+from fastapi import Depends, FastAPI, HTTPException, Request
 
 # Session: tipo da sessão SQLAlchemy injetada pelo endpoint via get_db()
 from sqlalchemy.orm import Session
@@ -37,6 +38,11 @@ from ai_english_tutor.schemas.evaluation import (
     EvaluateResponse,
     LevelResponse,
 )
+from ai_english_tutor.schemas.planner import (
+    PlanRequest,
+    PlanResponse,
+    TopicOut,
+)
 
 # Serviço do tutor (integração com o LLM) + erro de domínio TutorError
 from ai_english_tutor.services.tutor import TutorError, tutor_service
@@ -46,6 +52,9 @@ from ai_english_tutor.services.corrector import corrector_service
 
 # Evaluator: julga o nível do aluno e persiste a decisão no banco
 from ai_english_tutor.services.evaluator import evaluator_service
+
+# Planner: monta o plano de aula (vocabulário/gramática/conversação)
+from ai_english_tutor.services.planner import planner_service
 
 # Funções de persistência do histórico (salvar/buscar no PostgreSQL)
 from ai_english_tutor.services.history import get_history, save_message
@@ -58,6 +67,9 @@ from ai_english_tutor.models.correction import Correction
 
 # Modelo ORM das avaliações — import registra a tabela evaluations
 from ai_english_tutor.models.evaluation import Evaluation
+
+# Modelo ORM dos planos — import registra a tabela plans
+from ai_english_tutor.models.plan import Plan
 
 # Níveis do ensino adaptativo: proporções PT/EN e default de sessão nova
 from ai_english_tutor.agents.prompts import DEFAULT_LEVEL, LEVEL_RATIOS
@@ -179,12 +191,18 @@ def chat(
     latest_evaluation = evaluator_service.get_latest(db, session_id)
     current_level = latest_evaluation.level if latest_evaluation else DEFAULT_LEVEL
 
+    # Foco da aula: plano VIGENTE da sessão, se existir (gerado pelo
+    # Planner via POST /plan). O chat apenas LÊ — gerar plano é o Planner
+    current_plan = planner_service.get_latest(db, session_id)
+    lesson_focus = current_plan.focus if current_plan else None
+
     # Delega a geração da resposta ao serviço (integração com o LLM)
     # Falhas do LLM levantam TutorError — capturada pelo handler global
     reply_text = tutor_service.reply(
         user_message=payload.message,       # texto novo do aluno
         history=history_for_llm,            # contexto: banco (ou fallback)
         level=current_level,                # proporção PT/EN da sessão
+        lesson_focus=lesson_focus,          # foco do plano (se houver)
     )
 
     # Persiste o turno completo: mensagem do aluno E resposta do tutor
@@ -350,6 +368,97 @@ def level(
         level=current_level,                       # nível vigente
         pt_en_ratio=LEVEL_RATIOS[current_level],   # ex.: "70/30"
         evaluated=latest is not None,              # true = já foi avaliada
+    )
+
+
+# Rota de plano de aula — gera o próximo plano para a sessão
+# Decorator @app.post mapeia POST /plan e valida com PlanRequest
+@app.post("/plan", response_model=PlanResponse)
+def plan(
+    payload: PlanRequest,                          # corpo JSON validado
+    db: Session = Depends(get_db),                 # sessão do banco
+) -> PlanResponse:
+    """Gera plano progressivo (vocab/gramática/conversa) para a sessão."""
+
+    # Nível ATUAL: lido do Evaluator (integração plano ↔ nível do roadmap)
+    latest_evaluation = evaluator_service.get_latest(db, payload.session_id)
+    current_level = latest_evaluation.level if latest_evaluation else DEFAULT_LEVEL
+
+    # Tópicos já planejados antes — o Planner NÃO pode repetir nenhum
+    # (é isso que garante a progressão entre planos da mesma sessão)
+    covered_topics = planner_service.get_covered_topics(db, payload.session_id)
+
+    # Histórico da sessão — dá contexto sobre o que o aluno já pratica
+    rows = get_history(db, payload.session_id)
+    history_dicts = [
+        {"role": row.role, "content": row.content}   # mapeia colunas → dicts
+        for row in rows                              # para cada mensagem
+    ]
+
+    # Delega o planejamento ao serviço (2ª chamada LLM, só no /plan)
+    # Falhas do LLM/JSON levantam TutorError → handler global converte
+    result = planner_service.generate(current_level, history_dicts, covered_topics)
+
+    # Persiste o novo plano — passa a ser o VIGENTE da sessão
+    planner_service.save(db, payload.session_id, current_level, result)
+
+    # COMMIT ÚNICO da transação (mesmo padrão do /chat e /evaluate)
+    db.commit()
+
+    # Converte TopicItem (domínio) → TopicOut (schema de saída)
+    topics_out = [
+        TopicOut(kind=t.kind, title=t.title, detail=t.detail)   # tópico
+        for t in result.topics                                  # para cada um
+    ]
+
+    # Envelope: plano + nível/proporção em que foi gerado
+    return PlanResponse(
+        session_id=payload.session_id,           # ecoa a sessão do plano
+        level=current_level,                     # nível considerado
+        pt_en_ratio=LEVEL_RATIOS[current_level], # ex.: "70/30"
+        focus=result.focus,                      # objetivo da aula
+        topics=topics_out,                       # 3 tópicos na ordem
+        rationale=result.rationale,              # justificativa em PT
+    )
+
+
+# Rota do plano vigente — apenas LEITURA, nunca altera nada
+# Decorator @app.get mapeia GET /plan/{session_id} com parâmetro de caminho
+@app.get("/plan/{session_id}", response_model=PlanResponse)
+def get_plan(
+    session_id: str,                             # id vindo da URL
+    db: Session = Depends(get_db),               # sessão do banco injetada
+) -> PlanResponse:
+    """Devolve o plano de aula vigente da sessão (404 se nunca gerado)."""
+
+    # Último plano gravado (None = sessão nunca teve plano)
+    latest = planner_service.get_latest(db, session_id)
+
+    # Sem plano → 404 com mensagem clara em PT (não existe plano ainda)
+    if latest is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Nenhum plano gerado para esta sessão. Use POST /plan.",
+        )
+
+    # Converte a linha ORM → schema PlanResponse (serialização)
+    topics_out = [
+        TopicOut(
+            kind=str(t.get("kind", "")),        # vocabulary|grammar|conversation
+            title=str(t.get("title", "")),      # título curto
+            detail=str(t.get("detail", "")),    # orientação em PT
+        )
+        for t in latest.topics or []            # topics já vem como list[dict]
+    ]
+
+    # Envelope com o plano vigente + proporção do nível em que foi gerado
+    return PlanResponse(
+        session_id=session_id,                    # ecoa o id consultado
+        level=latest.level,                       # nível na época do plano
+        pt_en_ratio=LEVEL_RATIOS.get(latest.level, LEVEL_RATIOS[DEFAULT_LEVEL]),
+        focus=latest.focus,                       # objetivo da aula
+        topics=topics_out,                        # 3 tópicos na ordem
+        rationale=latest.rationale,               # justificativa em PT
     )
 
 
