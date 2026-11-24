@@ -11,7 +11,8 @@ from uuid import uuid4
 # Depends: marca parâmetros de função que o FastAPI deve "injetar" (DI)
 # Request: objeto da requisição HTTP (usado nos handlers de erro)
 # HTTPException: erro de domínio com status code (ex.: 404 sem plano)
-from fastapi import Depends, FastAPI, HTTPException, Request
+# File/UploadFile: upload de áudio multipart (Etapa 8 — rota /transcribe)
+from fastapi import Depends, FastAPI, File, HTTPException, Request, UploadFile
 
 # Session: tipo da sessão SQLAlchemy injetada pelo endpoint via get_db()
 from sqlalchemy.orm import Session
@@ -21,7 +22,9 @@ from contextlib import asynccontextmanager
 
 # RequestValidationError: corpo/JSON inválido (campos faltando, tipo errado...)
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+
+# JSONResponse: respostas de erro em JSON | Response: bytes de áudio (TTS)
+from fastapi.responses import JSONResponse, Response
 
 # Schemas de entrada/saída: chat, histórico, mensagens, erros e avaliação
 from ai_english_tutor.schemas.chat import (
@@ -54,6 +57,9 @@ from ai_english_tutor.schemas.student import (
     WordsResponse,
 )
 
+# Schemas de voz: transcrição (STT) e síntese (TTS) — Etapa 8
+from ai_english_tutor.schemas.voice import SpeakRequest, TranscribeResponse
+
 # Serviço do tutor (integração com o LLM) + erro de domínio TutorError
 from ai_english_tutor.services.tutor import TutorError, tutor_service
 
@@ -68,6 +74,9 @@ from ai_english_tutor.services.planner import planner_service
 
 # Memory: perfil persistente, palavras, métricas e contexto (Etapa 7)
 from ai_english_tutor.services.students import students_service
+
+# Voice: transcrição Whisper e síntese Orpheus (Etapa 8)
+from ai_english_tutor.services.voice import voice_service
 
 # Funções de persistência do histórico (salvar/buscar no PostgreSQL)
 from ai_english_tutor.services.history import get_history, save_message
@@ -724,6 +733,40 @@ def get_context(
         top_mistakes=mistakes_out,
         learned_words=words_out,
     )
+
+
+# Rota de transcrição — áudio do aluno vira texto (STT / Whisper)
+# Decorator @app.post mapeia POST /transcribe com upload multipart/form-data
+@app.post("/transcribe", response_model=TranscribeResponse)
+def transcribe(
+    file: UploadFile = File(...),                 # arquivo de áudio (obrigatório)
+) -> TranscribeResponse:
+    """Recebe áudio (wav/mp3/m4a...) e devolve o que foi falado, em texto."""
+
+    # Lê os bytes do upload inteiro (SpooledTemporaryFile do FastAPI)
+    data = file.file.read()
+
+    # Delega ao service: valida tamanho, chama Whisper e mapeia erros
+    # (TutorError já sobe para o handler global com o status certo)
+    text = voice_service.transcribe(file.filename or "audio.wav", data)
+
+    # Resposta com o texto + modelo usado (útil p/ debug no cliente)
+    return TranscribeResponse(text=text, model=settings.STT_MODEL)
+
+
+# Rota de síntese — resposta do tutor vira áudio (TTS / Orpheus)
+# Decorator @app.post mapeia POST /speak (JSON {text, voice?} -> WAV)
+@app.post("/speak")
+def speak(payload: SpeakRequest) -> Response:
+    """Devolve um arquivo WAV com o texto falado pela voz escolhida."""
+
+    # Service fatia o texto em blocos de 190 chars (limite do Orpheus),
+    # sintetiza cada bloco e remonta um único WAV válido
+    audio = voice_service.synthesize(payload.text, payload.voice)
+
+    # Response crua: corpo binário + Content-Type audio/wav p/ o browser
+    # tocar direto em <audio src="..."> ou no player do /docs
+    return Response(content=audio, media_type="audio/wav")
 
 
 # Ponto de entrada para rodar localmente com `python -m ai_english_tutor.main`

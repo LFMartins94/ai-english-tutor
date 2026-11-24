@@ -164,6 +164,7 @@ ai-english-tutor/
 │       │   ├── evaluator.py     # avaliação de nível
 │       │   ├── planner.py       # plano de aula progressivo
 │       │   ├── students.py      # memória de longo prazo do aluno
+│       │   ├── voice.py         # voz: transcrição (Whisper) e síntese (Orpheus)
 │       │   ├── history.py       # persistência do histórico
 │       │   └── errors.py        # erros recorrentes
 │       │
@@ -171,7 +172,8 @@ ai-english-tutor/
 │           ├── chat.py
 │           ├── evaluation.py
 │           ├── planner.py
-│           └── student.py
+│           ├── student.py
+│           └── voice.py
 │
 ├── .env                         # segredos locais (não versionado)
 ├── .env.example                 # template das variáveis de ambiente
@@ -204,7 +206,7 @@ O andamento completo está em [`FALTANDO.md`](FALTANDO.md).
 | 5 | Evaluator (nível + proporção PT/EN adaptativa) | ✅ Concluída |
 | 6 | Planner (conteúdos e exercícios) | ✅ Concluída |
 | 7 | Memory (perfil e evolução de longo prazo) | ✅ Concluída |
-| 8 | Voz — modo convencional (STT + TTS) | ⬜ Pendente |
+| 8 | Voz — modo convencional (STT + TTS) | ✅ Concluída |
 | 9 | Interface web | ⬜ Pendente |
 | 10 | LangGraph + voz em tempo real (futuro) | ⬜ Pendente |
 
@@ -272,6 +274,8 @@ Documentação interativa gerada pelo FastAPI: [http://127.0.0.1:8000/docs](http
 | `GET` | `/students/{student_id}/words` | Palavras do aluno (`?kind=vocabulary\|mistake`) |
 | `GET` | `/students/{student_id}/metrics` | Métricas: sessões, correções, curva de avaliações |
 | `GET` | `/students/{student_id}/context` | Memória pronta para conversas novas |
+| `POST` | `/transcribe` | Upload de áudio (multipart) → texto falado (Whisper) |
+| `POST` | `/speak` | `{text, voice?}` → arquivo WAV com a fala (Orpheus) |
 
 Os endpoints `POST /chat`, `POST /evaluate` e `POST /plan` aceitam
 `student_id` opcional no corpo: com ele, nível, plano e erros passam a

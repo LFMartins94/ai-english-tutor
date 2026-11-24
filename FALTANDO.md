@@ -86,11 +86,15 @@ Andamento do projeto. Marque cada etapa como ✅ quando concluída e verificada.
 
 ---
 
-## Etapa 8 — Voz: modo convencional ⬜
+## Etapa 8 — Voz: modo convencional ✅
 
-- [ ] STT: áudio → texto (upload de áudio no `POST /chat` ou endpoint próprio)
-- [ ] TTS: resposta → áudio
-- [ ] Teste do fluxo completo: falar → transcrever → LLM → sintetizar
+- [x] STT: `POST /transcribe` (upload multipart → Whisper large v3 turbo)
+- [x] TTS: `POST /speak` (texto/voz → WAV Orpheus; fatia em blocos de 190 chars
+      por causa do limite de 200 chars do modelo e remonta um WAV só)
+- [x] Header WAV normalizado (Groq envia tamanhos de streaming 0xFFFFFFFF)
+- [x] Validações: áudio vazio/grande, texto vazio, voz inválida, sem arquivo
+- [x] Erro amigável quando o modelo de voz precisa de aceite de termos no console
+- [x] Fluxo completo: falar → transcrever → LLM → sintetizar; 13/13 testes
 
 ---
 
@@ -110,4 +114,4 @@ Andamento do projeto. Marque cada etapa como ✅ quando concluída e verificada.
 
 ---
 
-*Última atualização: Etapa 7 concluída.*
+*Última atualização: Etapa 8 concluída.*

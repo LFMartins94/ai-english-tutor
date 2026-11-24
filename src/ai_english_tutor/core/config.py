@@ -37,6 +37,16 @@ class Settings(BaseSettings):
     # então usamos o 20B: 2x mais rápido e metade do preço que o 120B
     LLM_MODEL_CORRECTOR: str = "openai/gpt-oss-20b"
 
+    # Modelo de STT (voz -> texto): whisper large v3 turbo na Groq
+    STT_MODEL: str = "whisper-large-v3-turbo"
+
+    # Modelo de TTS (texto -> voz): Orpheus English na Groq
+    # Limite: 200 caracteres por request — por isso o service fatia o texto
+    TTS_MODEL: str = "canopylabs/orpheus-v1-english"
+
+    # Voz padrão do TTS (uma das 6 vozes inglesas do Orpheus)
+    TTS_VOICE: str = "autumn"
+
     # URL de conexão com o PostgreSQL (dialect+driver://user:senha@host:porta/db)
     # O SQLAlchemy usa esta string para criar a engine de acesso ao banco
     DATABASE_URL: str = "postgresql+psycopg://tutor:tutor123@localhost:5432/ai_english_tutor"
